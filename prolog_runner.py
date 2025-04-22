@@ -4,6 +4,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from MiniPrologVisitor import MiniPrologVisitor
 import itertools
+import string
 
 RETURN_KEY = "<Return>"
 
@@ -213,6 +214,8 @@ class PrologGUI(tk.Tk):
         self.rule_list.bind('<Double-1>', lambda e: self.edit_rule())
         # Global key bindings for panel shortcuts and commands
         self.bind_all('<Key>', self.on_key_press)
+        # Query Builder trigger
+        # 'B' key will open query builder
 
         # Save/Load buttons
         action_frame = tk.Frame(self)
@@ -537,7 +540,107 @@ class PrologGUI(tk.Tk):
             elif self.selected_panel == 'rule':
                 self.delete_rule()
             return 'break'
+        if key == 'b':
+            self.open_query_builder()
+            return 'break'
         # Other keys: default behavior
+
+    def open_query_builder(self):
+        builder = tk.Toplevel(self)
+        builder.title('Query Builder')
+        # Entry for building query
+        entry = tk.Entry(builder, width=60)
+        entry.pack(fill=tk.X, padx=5, pady=5)
+        # Frames for lists
+        frame = tk.Frame(builder)
+        frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Predicates
+        pred_frame = tk.LabelFrame(frame, text='Predicates')
+        pred_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        pred_list = tk.Listbox(pred_frame)
+        pred_list.pack(fill=tk.BOTH, expand=True)
+        preds = set(self.interpreter.facts.keys()) | {r[0] for r in self.interpreter.rules}
+        for p in sorted(preds): pred_list.insert(tk.END, p)
+        # Constants
+        const_frame = tk.LabelFrame(frame, text='Constants')
+        const_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        const_list = tk.Listbox(const_frame)
+        const_list.pack(fill=tk.BOTH, expand=True)
+        consts = sorted({val for facts in self.interpreter.facts.values() for val in itertools.chain.from_iterable([facts])})
+        consts = sorted({c for facts in self.interpreter.facts.values() for args in facts for c in args})
+        for c in consts: const_list.insert(tk.END, c)
+        # Variables
+        var_frame = tk.LabelFrame(frame, text='Variables')
+        var_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        var_list = tk.Listbox(var_frame)
+        var_list.pack(fill=tk.BOTH, expand=True)
+        for v in string.ascii_uppercase: var_list.insert(tk.END, v)
+        # Comma button
+        comma_btn = tk.Button(builder, text=',', width=3, command=lambda: insert_text(', '))
+        comma_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        # OK and Cancel
+        ok_btn = tk.Button(builder, text='OK', command=lambda: finish())
+        ok_btn.pack(side=tk.RIGHT, padx=5, pady=5)
+        cancel_btn = tk.Button(builder, text='Cancel', command=builder.destroy)
+        cancel_btn.pack(side=tk.RIGHT)
+
+        def replace_next_placeholder(text):
+            content = entry.get()
+            idx = content.find('_')
+            if idx == -1:
+                # no placeholder, insert at end
+                entry.insert(tk.END, text)
+                entry.icursor(tk.END)
+            else:
+                entry.delete(idx)
+                entry.insert(idx, text)
+                # move cursor to next placeholder
+                nex = entry.get().find('_', idx)
+                if nex != -1:
+                    entry.icursor(nex)
+                else:
+                    entry.icursor(idx + len(text))
+
+        def insert_text(text):
+            pos = entry.index(tk.INSERT)
+            entry.insert(pos, text)
+            entry.icursor(pos + len(text))
+
+        def insert_predicate(event):
+            sel = pred_list.curselection()
+            if not sel: return
+            p = pred_list.get(sel[0])
+            arities = {len(args) for args in self.interpreter.facts.get(p, [])}
+            for head, args, _ in self.interpreter.rules:
+                if head == p: arities.add(len(args))
+            arity = max(arities) if arities else 2
+            skeleton = f"{p}({', '.join('_' for _ in range(arity))})"
+            entry.insert(tk.END, skeleton)
+            idx = skeleton.find('_')
+            entry.focus_set()
+            entry.icursor(entry.index(tk.END) - len(skeleton) + idx)
+
+        def insert_constant(event):
+            sel = const_list.curselection()
+            if not sel: return
+            replace_next_placeholder(const_list.get(sel[0]))
+
+        def insert_variable(event):
+            sel = var_list.curselection()
+            if not sel: return
+            replace_next_placeholder(var_list.get(sel[0]))
+
+        def finish():
+            q = entry.get().strip()
+            if q:
+                self.query_entry.delete(0, tk.END)
+                self.query_entry.insert(0, q)
+            builder.destroy()
+            self.query_entry.focus_set()
+
+        pred_list.bind('<Double-1>', insert_predicate)
+        const_list.bind('<Double-1>', insert_constant)
+        var_list.bind('<Double-1>', insert_variable)
 
     def save_to_file(self):
         path = filedialog.asksaveasfilename(defaultextension=".xd", filetypes=[("XD files","*.xd"),("All files","*.*")])
