@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox, filedialog
+import networkx as nx
+import matplotlib.pyplot as plt
 from MiniPrologVisitor import MiniPrologVisitor
+import itertools
 
 RETURN_KEY = "<Return>"
 
@@ -137,6 +140,13 @@ class PrologGUI(tk.Tk):
         # Keyboard shortcuts for menu actions
         self.bind('<Control-s>', lambda e: self.save_to_file())
         self.bind('<Control-l>', lambda e: self.load_from_file())
+
+        # --- View menu for Graph visualization ---
+        viewmenu = tk.Menu(menubar, tearoff=0)
+        viewmenu.add_command(label="Graph", accelerator="G", command=self.visualize_graph)
+        menubar.add_cascade(label="View", menu=viewmenu)
+        # Keyboard shortcut for graph
+        self.bind('<Key-g>', lambda e: self.visualize_graph())
 
         self.interpreter = PrologInterpreter()
 
@@ -382,36 +392,42 @@ class PrologGUI(tk.Tk):
         self.rule_list.delete(idx)
 
     def ask_query(self):
-        raw = self.query_entry.get().strip().rstrip('?.')
-        # record history
-        if raw:
-            self.query_history.append(raw)
-            self.history_index = len(self.query_history)
+        raw = self.query_entry.get().strip()
         if not raw:
             return
-        try:
-            if '(' not in raw or not raw.endswith(')'):
-                raise ValueError
-            pred, args_str = raw.split('(', 1)
-            args = [a.strip() for a in args_str.rstrip(')').split(',')]
-            if not pred.strip() or any(not a for a in args):
-                raise ValueError
-        except Exception:
-            messagebox.showerror("Invalid Query", "Query must be in form predicate(arg1, arg2, ...)")
-            return
-        results = self.interpreter._match_fact(pred, args) or self.interpreter._match_rules(pred, args)
-        self.history.config(state='normal')
-        self.history.insert(tk.END, f"Q: {raw}\n")
-        if results:
-            for bind in results:
-                if bind:
-                    self.history.insert(tk.END, "A: " + ", ".join(f"{k} = {v}" for k, v in bind.items()) + "\n")
-                else:
-                    self.history.insert(tk.END, "A: ✅ TRUE\n")
-        else:
-            self.history.insert(tk.END, "A: ❌ No match\n")
-        self.history.insert(tk.END, "\n")
-        self.history.config(state='disabled')
+        # split into individual queries by period
+        parts = [p.strip().rstrip('?.') for p in raw.split('.') if p.strip()]
+        for text in parts:
+            # record history
+            self.query_history.append(text)
+            self.history_index = len(self.query_history)
+            # validate syntax
+            try:
+                if '(' not in text or not text.endswith(')'):
+                    raise ValueError
+                pred, args_str = text.split('(', 1)
+                args = [a.strip() for a in args_str.rstrip(')').split(',')]
+                if not pred.strip() or any(not a for a in args):
+                    raise ValueError
+            except Exception:
+                messagebox.showerror("Invalid Query", "Query must be in form predicate(arg1, arg2, ...)")
+                continue
+            # perform query
+            results = self.interpreter._match_fact(pred, args) or self.interpreter._match_rules(pred, args)
+            # display
+            self.history.config(state='normal')
+            self.history.insert(tk.END, f"Q: {text}\n")
+            if results:
+                for bind in results:
+                    if bind:
+                        self.history.insert(tk.END, "A: " + ", ".join(f"{k} = {v}" for k, v in bind.items()) + "\n")
+                    else:
+                        self.history.insert(tk.END, "A: ✅ TRUE\n")
+            else:
+                self.history.insert(tk.END, "A: ❌ No match\n")
+            self.history.insert(tk.END, "\n")
+            self.history.config(state='disabled')
+        # scroll to bottom and reset input
         self.history.yview(tk.END)
         self.query_entry.delete(0, tk.END)
         self.query_entry.focus_set()
@@ -569,6 +585,34 @@ class PrologGUI(tk.Tk):
                     self.fact_list.insert(tk.END, line)
         except Exception as e:
             messagebox.showerror("Load Error", str(e))
+
+    def visualize_graph(self):
+        # Build a graph of constants from facts
+        G_data = nx.DiGraph()
+        for pred, facts in self.interpreter.facts.items():
+            for args in facts:
+                if len(args) >= 2:
+                    src, dst = args[0], args[1]
+                    G_data.add_edge(src, dst, label=pred)
+        # Build a dependency graph of predicates from rules
+        G_rules = nx.DiGraph()
+        for head, _, body in self.interpreter.rules:
+            for p, _ in body:
+                G_rules.add_edge(p, head)
+        # Draw both graphs side-by-side
+        fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+        # Data graph
+        pos1 = nx.spring_layout(G_data)
+        nx.draw(G_data, pos1, ax=axs[0], with_labels=True, arrows=True, node_color='lightblue')
+        edge_labels1 = nx.get_edge_attributes(G_data, 'label')
+        nx.draw_networkx_edge_labels(G_data, pos1, edge_labels=edge_labels1, ax=axs[0])
+        axs[0].set_title('Facts Graph')
+        # Rules dependency graph
+        pos2 = nx.spring_layout(G_rules)
+        nx.draw(G_rules, pos2, ax=axs[1], with_labels=True, arrows=True, node_color='lightgreen')
+        axs[1].set_title('Rule Dependencies')
+        plt.tight_layout()
+        plt.show()
 
 
 def main():

@@ -1,0 +1,16 @@
+parent(john, Y).
+parent(X, alice).
+father(X, bob).
+mother(mary, alice).
+grandparent(X, lily).
+sibling(mary, bob).
+brother(X, sam).
+sister(X, laura).
+aunt(alice, Z).
+uncle(bob, Z).
+ancestor(X, mia).
+descendant(noah, X).
+cousin(X, paul).
+grandchild(oliver, Y).
+great_grandparent(X, rachel).
+related(john, noah).
